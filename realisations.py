@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-""" Create realisations of cluster and field stars for a MCMC analysis """
+""" Create realisations of cluster and field stars """
 
 from __future__ import absolute_import, print_function, with_statement
 
@@ -12,17 +12,12 @@ from hashlib import md5
 
 # Third-party
 import numpy as np
-import pyfits
+from astropy.io import fits
 
 # Reproducibility is key.
 random.seed(888)
 
-class OverConstrainedRealisationException(Exception):
-    # This exception class is for when the inputs given to a realisation have
-    # made it over constrained. 
-    pass
-
-def create_realisation_set(data, num_clusters=np.inf, exclude_clusters=None,
+def create(data, num_clusters=np.inf, exclude_clusters=None,
     cluster_size_limits=None, field_star_fraction=0, 
     cluster_star_constraints=None, field_star_constraints=None, **kwargs):
     """
@@ -42,7 +37,7 @@ def create_realisation_set(data, num_clusters=np.inf, exclude_clusters=None,
         The observed data table containing field and cluster stars.
 
     :type data:
-        :class:`pyfits.hdu.table.BinTableHDU`
+        :class:`fits.hdu.table.BinTableHDU`
 
     :param num_clusters: [optional]
         The number of clusters to draw from. By default the realisation will
@@ -55,7 +50,7 @@ def create_realisation_set(data, num_clusters=np.inf, exclude_clusters=None,
         A list of cluster names to exclude in this realisation.
 
     :type exclude_clusters:
-        tuple
+        tuple of str
 
     :param cluster_size_limits: [optional]
         A two-length tuple providing the lower and upper limits on how many
@@ -218,7 +213,6 @@ def create_realisation_set(data, num_clusters=np.inf, exclude_clusters=None,
             (data[cluster_name_column] == "MEMBER_{}".format(cluster_name)) + \
             (data[cluster_name_column] == "CANDIDATE_{}".format(cluster_name))
         included[indices] *= False
-
         if indices.sum() == 0:
             logger.warn("Found no members or candidates of cluster {0} to "
                 "exclude".format(cluster_name))
@@ -285,7 +279,6 @@ def create_realisation_set(data, num_clusters=np.inf, exclude_clusters=None,
     #     cluster stars we already have.
     if field_star_fraction > 0:
         num_cluster_stars = len(chosen_cluster_indices)
-
         num_field_stars = int(round((field_star_fraction * num_cluster_stars) \
             / (1. - field_star_fraction)))
         logger.debug("Calculated number of field stars to be {0:.0f} to give a "
@@ -326,47 +319,11 @@ def create_realisation_set(data, num_clusters=np.inf, exclude_clusters=None,
     return (chosen_indices, cluster_sizes, checksum)
 
 
-# Create a set of realisations
-# In some instances we want to perturb the abundances in a given realisation
-# In some instances we ... don't.
-
-# The realisation set should be the chosen indices, the cluster sizes, and
-# some hash/similar of the data set (and some hash of the abundance set?) so we
-# can be sure the correct data set is being used.
-
-# With the realisation (unperturbed abundances) we want to use abundance columns
-# X, Y, Z and fit GMMs/DPGMMs to it, and save the result for later plotting.
-
+class OverConstrainedRealisationException(Exception):
+    # This exception class is for when the inputs given to a realisation have
+    # made it over constrained. 
+    pass
 
 def perturb_abundances(data_subset, abundance_columns):
     raise NotImplementedError
-
-
-def fit_gmm(data_subset, n_components, **kwargs):
-
-    # should fit all sequence of n_components and return AICs/BICs, etc and a
-    # preferred inferred number.
-    raise NotImplementedError
-
-def fit_dpgmm(data_subset, **kwargs):
-
-    # should fit the data and return the inferred number of clusters
-
-    raise NotImplementedError
-
-
-"""
-
-data_indices, cluster_sizes = create_realisation(data, exclude_clusters=("NGC 2419", ),
-    cluster_size_limits=(10, None), field_star_fraction=0.9,
-    field_star_constraints=None,
-    cluster_star_constraints=None)
-
-# Just do something with positions
-
-mixture_model(data, max_components=20)
-
-"""
-
-
 
