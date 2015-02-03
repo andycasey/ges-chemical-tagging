@@ -10,14 +10,13 @@ import code as ct
 
 # PREPARATION
 # Create some data set.
-data = ct.data.DataSet.from_fits("data/GES_iDR2iDR3_WG15_Recommended.fits")
 
 # Assign field stars based on rules.
 # Assign cluster candidates based on rules.
 # Assign cluster members based on rules.
 
 # Write the data to disk.
-data.write("data/ges-data-set.fits")
+#data.write("data/ges-data-set.fits")
 
 # ASSIGNING REALISATIONS
 # Create realisations using the data table.
@@ -33,13 +32,19 @@ data.write("data/ges-data-set.fits")
 
 
 
-
-
-
 # SHOULD WE:
 # Load data.
+data = ct.data.DataSet.from_fits("data/GES_iDR2iDR3_WG10+WG11.fits", extension=1)
+
 # Assign field/cluster stars.
-# Save data.
+# Unless otherwise told, this star is in the field:
+data.data["FIELD/CLUSTER"] = "FIELD"
+
+# Assign cluster stars based on rules.
+
+
+# Save the data.
+
 
 # Create some realisation where we use all cluster stars.
 # Save the realisation information to disk.

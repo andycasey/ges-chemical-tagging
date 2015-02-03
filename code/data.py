@@ -4,10 +4,11 @@
 
 from __future__ import absolute_import, print_function, with_statement
 
-__all__ = ("DataSet", )
 __author__ = "Andy Casey <arc@ast.cam.ac.uk>"
+__all__ = ("DataSet", )
 
-# Third-party
+# Third-party.
+import numpy as np
 from astropy.io import fits
 from astropy.table import Column, Table
 
@@ -32,7 +33,7 @@ class DataSet(object):
         creating realisations and evaluating how correct we were later on.
         """
         if "FIELD/CLUSTER" not in self.data.dtype.names:
-            cluster_column = Column(data=["FIELD"] * len(self.data),
+            cluster_column = Column(data=[""] * len(self.data),
                 name="FIELD/CLUSTER", dtype="|S256")
             self.data.add_column(cluster_column)
         return True
@@ -52,7 +53,7 @@ class DataSet(object):
 
         extension = kwargs.pop("extension", 0)
         data = Table(fits.open(filename, **kwargs)[extension].data)
-        return cls.__init__(data)
+        return cls(data)
 
 
     def writeto(self, filename, **kwargs):
@@ -132,7 +133,6 @@ class DataSet(object):
             raise ValueError("cluster name '{0}' is too long; max length {1}"\
                 .format(cluster_name, max_len))
 
-        # Create some callable function if necessary?
         evaluate_filter = not hasattr(star_filter, "__call__")
         mask = np.zeros(len(self.data), dtype=bool)
         for i, row in enumerate(self.data):
@@ -143,12 +143,10 @@ class DataSet(object):
                     logger.exception("Exception evaluating '{0}' on row {1}:"\
                         .format(star_filter, i))
             else:
-                mask[i] = evaluate_filter(row)
+                mask[i] = star_filter(row)
 
-        # Update.
+        # Update, and return the number of affected rows.
         self.data["FIELD/CLUSTER"][mask] = cluster_name
-
-        # Return the number of rows affected.
         return int(mask.sum())
 
 

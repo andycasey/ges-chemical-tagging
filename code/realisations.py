@@ -4,8 +4,8 @@
 
 from __future__ import absolute_import, print_function, with_statement
 
-__all__ = ("create", "perturb_abundances")
 __author__ = "Andy Casey <arc@ast.cam.ac.uk>"
+__all__ = ("create", "perturb_abundances")
 
 # Standard library
 import random
@@ -116,6 +116,9 @@ def create(data, num_clusters=np.inf, exclude_clusters=None,
     #       log a warning later on. But we can't have just an empty string.
     if "" in exclude_clusters:
         raise ValueError("cannot exclude cluster names with an empty string")
+
+    if "FIELD" in map(str.upper, exclude_clusters):
+        raise ValueError("cannot exclude protected cluster name 'FIELD'")
 
     if cluster_size_limits is not None:
         assert len(cluster_size_limits) == 2, "Cluster size limits must be a "\
