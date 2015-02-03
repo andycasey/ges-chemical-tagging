@@ -1,12 +1,18 @@
 #!/usr/bin/env python
 
-""" Chemically tag the Gaia-ESO Survey data. """
+""" Chemically tag the Gaia-ESO Survey dataset. """
 
 from __future__ import absolute_import, print_function, with_statement
 
 __author__ = "Andy Casey <arc@ast.cam.ac.uk>"
 
+# Standard library.
+import logging
+
+# Module-specific.
 import code as tagging
+
+logger = logging.getLogger("code")
 
 # PREPARATION
 # Create some data set.
@@ -16,7 +22,7 @@ import code as tagging
 # Assign cluster members based on rules.
 
 # Write the data to disk.
-#data.write("data/ges-data-set.fits")
+#dataset.write("data/ges-data-set.fits")
 
 # ASSIGNING REALISATIONS
 # Create realisations using the data table.
@@ -33,13 +39,13 @@ import code as tagging
 
 
 # SHOULD WE:
-# Load data.
-data = tagging.data.DataSet.from_fits("data/GES_iDR2iDR3_WG10+WG11.fits",
+# Load dataset.
+dataset = tagging.DataSet.from_fits("data/GES_iDR2iDR3_WG10+WG11.fits",
     extension=1)
 
 # Assign field/cluster stars.
 # Unless otherwise told, this star is in the field:
-data.data["FIELD/CLUSTER"] = "FIELD"
+dataset.data["FIELD/CLUSTER"] = "FIELD"
 
 # [TODO] Delete benchmarks
 clusters = ("Cha_I", "Br81", "M15", "NGC2808", "NGC6633", "IC4665", "NGC104",
@@ -50,21 +56,47 @@ clusters = ("Cha_I", "Br81", "M15", "NGC2808", "NGC6633", "IC4665", "NGC104",
 # [TODO] Assign candidates?
 # Assign members.
 for cluster in clusters:
-    members = data.assign_cluster_members(cluster,
+    members = dataset.assign_cluster_members(cluster,
         lambda row: row["TARGET"].startswith(cluster))
 
     # Special hack:
     if cluster == "Trumpler20":
-        members += data.assign_cluster_members(cluster,
+        members += dataset.assign_cluster_members(cluster,
             lambda row: row["TARGET"].startswith("Trumpler_20"))
     print("Cluster {0} has {1} members".format(cluster, members))
 
-# Save the data.
-#data.write("data/ges-no-member-criteria.fits")
+# Save the dataset.
+#dataset.write("data/ges-no-member-criteria.fits")
 
 
-result = tagging.realisations.create(data, exclude_clusters=["Br25"],
-    num_clusters=3, field_star_fraction=0.5)
+rs_indices, rs_counts, rs_hash = tagging.realisations.create(dataset,
+    exclude_clusters=["Br25"], num_clusters=5)
+
+kwds = {
+    "covariance_type": "full",
+    "perturb_within_uncertainties": False
+}
+
+aic_num, model, aics = tagging.infer.cluster_count(dataset.data[rs_indices], ["RA", "DEC"],
+    model="GMM/AIC", **kwds)
+
+bic_num, model, bics = tagging.infer.cluster_count(dataset.data[rs_indices], ["RA", "DEC"],
+    model="GMM/BIC", **kwds)
+
+dpgmm_num, model = tagging.infer.cluster_count(dataset.data[rs_indices], ["RA", "DEC"],
+    model="DPGMM", **kwds)
+
+vbgmm_num, model = tagging.infer.cluster_count(dataset.data[rs_indices], ["RA", "DEC"],
+    model="VBGMM", **kwds)
+
+print(aic_num, bic_num, dpgmm_num, vbgmm_num)
+
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots()
+ax.plot(np.arange(aics.size) + 1, aics, c="b", linestyle="-.", label="GMM/AIC")
+ax.plot(np.arange(bics.size) + 1, bics, c="k", linestyle="-.", label="GMM/BIC")
+
+raise a
 
 """
 data, num_clusters=np.inf, exclude_clusters=None,

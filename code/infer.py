@@ -6,21 +6,247 @@ from __future__ import absolute_import, print_function, with_statement
 
 __author__ = "Andy Casey <arc@ast.cam.ac.uk>"
 
-# Third-party
+# Standard library.
+import logging
+
+# Third-party.
+import numpy as np
 from astropy.io import fits
 from astropy.table import Column, Table
+from scipy import linalg
+from sklearn import mixture
+
+# Create logger.
+logger = logging.getLogger(__name__)
+
+def cluster_count_by_dpgmm(data, max_components=100, **kwargs):
+    """
+    Determine the number of clusters by fitting a Dirichlet Process Gaussian
+    Mixture Model to the data.
+
+    :param data:
+        The data array.
+
+    :type data:
+        :class:`numpy.array`
+    """
+
+    # Extras.
+    full_output = kwargs.pop("full_output", False)
+
+    # Defaults.
+    kwargs.setdefault("covariance_type", "full")
+
+    # Fit stuff.
+    model = mixture.DPGMM(max_components, **kwargs)
+    model.fit(data)
+
+    # Now actually find out how many components were used
+    Y, components = model.predict(data), 0
+    for i, (mean, covar) in enumerate(zip(model.means_, model._get_covars())):
+        v, w = linalg.eigh(covar)
+        u = w[0] / linalg.norm(w[0])
+        if np.any(Y == i):
+            components += 1
+
+    if full_output:
+        return (components, model)
+    return components
+
+
+def cluster_count_by_vbgmm(data, max_components=100, **kwargs):
+    """
+    Determine the number of clusters by using a Variational Inference for
+    Gaussian Mixture Model with the data.
+
+    :param data:
+        The data array.
+
+    :type data:
+        :class:`numpy.array`
+    """
+
+    # Extras.
+    full_output = kwargs.pop("full_output", False)
+
+    # Defaults.
+    kwargs.setdefault("covariance_type", "full")
+
+    # Fit stuff.
+    model = mixture.VBGMM(max_components, **kwargs)
+    model.fit(data)
+
+    # Now actually find out how many components were used
+    Y, components = model.predict(data), 0
+    for i, (mean, covar) in enumerate(zip(model.means_, model._get_covars())):
+        v, w = linalg.eigh(covar)
+        u = w[0] / linalg.norm(w[0])
+        if np.any(Y == i):
+            components += 1
+
+    if full_output:
+        return (components, model)
+    return components
+
+
+def cluster_count_by_gmm(data, max_components=100, metric="AIC", **kwargs):
+    """
+    Determine the number of clusters by fitting Gaussian mixture models and 
+    minimising some metric (e.g., AIC/BIC).
+
+    :param data:
+        The data array.
+
+    :type data:
+        :class:`numpy.array`
+
+    :param max_components: [optional]
+        The maximum number of components to consider. By default this will keep
+        trying mixtures for 5 components past the minimum. This implicitly
+        assumes there is a single minimum in the metric space. This value can
+        be adjusted by providing `n_components_past_minimum`.
+
+    :type max_components:
+        int
+
+    :param metric: [optional]
+        The metric to use to determine how many components there are. Options
+        are 'AIC' (default) or 'BIC'.
+
+    :type metric:
+        str
+    """
+
+    metric = metric.upper()
+
+    # Remove unnecessary keywords.
+    full_output = kwargs.pop("full_output", False)
+    num_past_minimum = kwargs.pop("n_components_past_minimum", 5)
+    kwargs.pop("n_components", None)
+
+    # Defaults:
+    kwargs.setdefault("covariance_type", "full")
+
+    metrics = []
+    for i in range(1, max_components + 1):
+        # Fit the data
+        model = mixture.GMM(n_components=i, **kwargs)
+        model.fit(data)
+
+        # Determine the metric that we will decide with.
+        if metric == "AIC":
+            _ = model.aic(data)
+            metrics.append(_)
+
+        elif metric == "BIC":
+            _ = model.bic(data)
+            metrics.append(_)
+
+        else:
+            raise TypeError("do not recognise metric {}".format(metric))
+
+        # Have we already found the minimum?
+        if _ > min(metrics) and i - np.argmin(metrics) > num_past_minimum:
+            break
+
+    metrics = np.array(metrics)
+    if metrics.size == max_components:
+        logger.warn("Maximum number of components ({}) reached!".format(
+            max_components))
+
+    num_clusters = np.argmin(metrics) + 1 # Indexing
+    if full_output:
+        model = mixture.GMM(n_components=num_clusters, **kwargs)
+        model.fit(data)
+
+        return (num_clusters, model, metrics)
+    return num_clusters
 
 
 
-def AIC(data_realisation, ):
-    pass
+__available_models = ("GMM/AIC", "GMM/BIC", "DPGMM", "VBGMM")
+def cluster_count(stars, data_columns, model, perturb_within_uncertainties=False,
+    **kwargs):
+    """
+    Infer the number of star clusters in the given data.
 
-def BIC(data_realisation, ):
-    pass
+    :param stars:
+        The table of stars, containing abundance information.
 
-# XDGMM, etc.
+    :type stars:
+        :class:`astropy.table.Table`
+
+    :param data_columns:
+        Which columns from `stars` should be used to inform us about the number
+        of star clusters in the data.
+
+    :type data_columns:
+        list of str
+
+    :param model:
+        The model to use to infer the number of star clusters. The available
+        models are: {models}
+
+    :type model:
+        str
+
+    :param perturb_within_uncertainties: [optional]
+        If set to `True`, then the values within `data_columns` will be
+        perturbed about the corresponding error values (assuming 'COLUMN' has
+        an error column 'E_COLUMN'). Uncertainties are assumed to be normally
+        distributed, and it is assumed the 'E_COLUMN' values represent the
+        1-sigma uncertainty.
+
+    :type perturb_within_uncertainties:
+        bool
+    """
+
+    if not isinstance(stars, Table):
+        raise TypeError("stars must be a :class:`astropy.table.Table` object")
+
+    if not isinstance(data_columns, (tuple, list, np.array)):
+        raise TypeError("data columns expected to be a tuple of str")
+
+    # Check the columns exist.
+    for c in data_columns:
+        if c not in stars.dtype.names:
+            raise ValueError("column '{}' is not in the stars table".format(c))
+        if perturb_within_uncertainties \
+        and "E_{}".format(c) not in stars.dtype.names:
+            raise ValueError("cannot perturb within uncertainties for column "
+                "'{0}' because it does not have an error column 'E_{0} exist "
+                "in the star table".format(c))
+
+    if model.lower() not in map(str.lower, __available_models):
+        raise ValueError("model '{0}' is not recognised; available models are"
+            " {1}".format(model, ", ".join(__available_models)))
+
+    # Build data array
+    data = np.zeros((len(stars), len(data_columns)), dtype=float)
+    for i, c in enumerate(data_columns):
+        if perturb_within_uncertainties:
+            data[:, i] = np.random.normal(stars[c], stars["E_{}".format(c)])
+        else:
+            data[:, i] = stars[c][:]
+
+    kwds = kwargs.copy()
+    kwds["full_output"] = True
+
+    # Do the fitting.
+    if model == "GMM/AIC":
+        result = cluster_count_by_gmm(data, metric="AIC", **kwds)
+    elif model == "GMM/BIC":
+        result = cluster_count_by_gmm(data, metric="BIC", **kwds)
+    elif model == "DPGMM":
+        result = cluster_count_by_dpgmm(data, **kwds)
+    elif model == "VBGMM":
+        result = cluster_count_by_vbgmm(data, **kwds)
+    else:
+        raise WTFError()
+
+    return result
 
 
-
-def cluster_count(data_realisation, method="AIC"):
-    pass
+# Update the docstring
+cluster_count.__doc__ = cluster_count.__doc__.format(
+    models=", ".join(__available_models))

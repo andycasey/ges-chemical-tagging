@@ -9,11 +9,8 @@ import logging
 
 # Module-specific.
 from . import (data, infer, realisations)
+from .data import DataSet
 
 logging.basicConfig(level=logging.DEBUG)
 logger = logging.getLogger(__name__)
-
-#formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
-#ch.setFormatter(formatter)
-#root.addHandler(ch)
 

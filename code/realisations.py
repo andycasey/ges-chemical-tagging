@@ -224,6 +224,9 @@ def create(dataset, num_clusters=np.inf, exclude_clusters=None,
         if indices.sum() == 0:
             logging.warn("Found no members or candidates of cluster {0} to "
                 "exclude".format(cluster_name))
+        else:
+            logging.debug("Excluded {0} stars from cluster {1}".format(
+                indices.sum(), cluster_name))
 
     # (2) Exclude any cluster stars based on our constraint function
     # (3) Exclude any field stars based on our constraint function
@@ -247,7 +250,8 @@ def create(dataset, num_clusters=np.inf, exclude_clusters=None,
             logging.debug("Chose {0} clusters: {1}".format(num_clusters,
                 ", ".join(included_cluster_names)))
     else:
-        logging.debug("Using all clusters because num_clusters = +infinity")
+        logging.debug("Using all non-excluded clusters because num_clusters = "\
+            "+infinity")
 
     # (5) In each cluster, pick a number between cluster_size_limits, or if none
     #     are given, somewhere between (0, number_of_stars).
