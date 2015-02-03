@@ -4,6 +4,7 @@
 
 from __future__ import absolute_import, print_function, with_statement
 
+__all__ = ("create", "perturb_abundances")
 __author__ = "Andy Casey <arc@ast.cam.ac.uk>"
 
 # Standard library
@@ -12,7 +13,7 @@ from hashlib import md5
 
 # Third-party
 import numpy as np
-from astropy.io import fits
+from astropy.table import Table
 
 # Reproducibility is key.
 random.seed(888)
@@ -37,7 +38,7 @@ def create(data, num_clusters=np.inf, exclude_clusters=None,
         The observed data table containing field and cluster stars.
 
     :type data:
-        :class:`fits.hdu.table.BinTableHDU`
+        :class:`astropy.table.Table`
 
     :param num_clusters: [optional]
         The number of clusters to draw from. By default the realisation will

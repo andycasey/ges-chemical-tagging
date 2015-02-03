@@ -4,12 +4,12 @@
 
 from __future__ import absolute_import, print_function, with_statement
 
+__all__ = ("DataSet", )
 __author__ = "Andy Casey <arc@ast.cam.ac.uk>"
 
 # Third-party
 from astropy.io import fits
 from astropy.table import Column, Table
-
 
 class DataSet(object):
 
@@ -24,8 +24,6 @@ class DataSet(object):
 
         self.data = data
         self._add_membership_column()
-        return None
-
 
     def _add_membership_column(self):
         """
@@ -37,7 +35,6 @@ class DataSet(object):
                 data=[""] * len(self.data), name="FIELD/CLUSTER", dtype="|S256")
             self.data.add_column(cluster_column)
         return True
-
 
     @classmethod
     def from_fits(cls, filename, **kwargs):
@@ -70,20 +67,22 @@ class DataSet(object):
         return self.data.write(filename, **kwargs)
 
 
-    def assign_cluster_candidates(self, cluster_filter):
+    def assign_cluster_candidates(self, cluster_name, star_filter):
+
         pass
 
-    def assign_cluster_members(self, cluster_filter):
+    def assign_cluster_members(self, cluster_name, star_filter):
         pass
 
 
-    def assign_field_star(self, cluster_filter):
+    def assign_field_star(self, star_filter):
         pass
-        
+
 
 
 # PREPARATION
 # Create some data set.
+# Assign field stars based on rules.
 # Assign cluster candidates based on rules.
 # Assign cluster members based on rules.
 # Write the data to disk.
