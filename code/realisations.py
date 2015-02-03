@@ -8,6 +8,7 @@ __author__ = "Andy Casey <arc@ast.cam.ac.uk>"
 __all__ = ("create", "perturb_abundances")
 
 # Standard library
+import logging
 import random
 from hashlib import md5
 
@@ -15,10 +16,13 @@ from hashlib import md5
 import numpy as np
 from astropy.table import Table
 
-# Reproducibility is key.
-random.seed(888)
+# Initialise logger.
+logger = logging.getLogger(__name__)
 
-def create(data, num_clusters=np.inf, exclude_clusters=None,
+# Reproducibility is key.
+#random.seed(888)
+
+def create(dataset, num_clusters=np.inf, exclude_clusters=None,
     cluster_size_limits=None, field_star_fraction=0, 
     cluster_star_constraints=None, field_star_constraints=None, **kwargs):
     """
@@ -34,11 +38,11 @@ def create(data, num_clusters=np.inf, exclude_clusters=None,
     # constraints on field stars
     # constraints on cluster stars
 
-    :param data:
-        The observed data table containing field and cluster stars.
+    :param dataset:
+        The observed dataset containing field and cluster stars.
 
-    :type data:
-        :class:`astropy.table.Table`
+    :type dataset:
+        :class:`data.DataSet`
 
     :param num_clusters: [optional]
         The number of clusters to draw from. By default the realisation will
@@ -96,6 +100,8 @@ def create(data, num_clusters=np.inf, exclude_clusters=None,
         fathom to consider yet.
 
     """
+    if not hasattr(dataset, "data") or not isinstance(dataset.data, Table):
+        raise TypeError("data table must be a data.DataSet object")
 
     # number of clusters is +infinity by default (e.g., all)
     if not np.isposinf(num_clusters):
@@ -196,43 +202,42 @@ def create(data, num_clusters=np.inf, exclude_clusters=None,
     as 'MEMBER_<CLUSTER_NAME>', but those that were targetted (and no velocity
     cut was made) are labelled as 'CANDIDATE_<CLUSTER_NAME>'
     """
+    FIELD_IDENTIFIER = kwargs.pop("__FIELD_IDENTIFIER", "FIELD")
 
-    member_prefix = kwargs.pop("_cluster_member_prefix", "MEMBER_")
-    cluster_name_column = kwargs.pop("_cluster_name_column", "CLUSTER_NAME")
-    cluster_names = [e[len(member_prefix):] \
-        for e in set(data[cluster_name_column]) if e.startswith(member_prefix)]
+    data = dataset.data
 
-    logger.debug("Looking for members starting with {0} in column {1}".format(
-        member_prefix, cluster_name_column))
-    logger.debug("There are {0} clusters with confirmed members: {1}".format(
+    cluster_names = [each for each in \
+        set(data["FIELD/CLUSTER"]).difference([FIELD_IDENTIFIER]) \
+        if not each.endswith("?")]
+
+    logging.debug("There are {0} clusters with confirmed members: {1}".format(
         len(cluster_names), ", ".join(cluster_names)))
 
     # Exclusions
     # (1) Exclude any stars based on what cluster they are in.
     # [TODO] Consider checking the clusters for their sizes and automatically
     # excluding those that do not meet the `cluster_size_limits` minimum
-    included = np.ones(data.size, dtype=bool)
+    included = np.ones(len(data), dtype=bool)
     for cluster_name in exclude_clusters:
-        indices = \
-            (data[cluster_name_column] == "MEMBER_{}".format(cluster_name)) + \
-            (data[cluster_name_column] == "CANDIDATE_{}".format(cluster_name))
+        indices = (data["FIELD/CLUSTER"] == cluster_name)
         included[indices] *= False
         if indices.sum() == 0:
-            logger.warn("Found no members or candidates of cluster {0} to "
+            logging.warn("Found no members or candidates of cluster {0} to "
                 "exclude".format(cluster_name))
 
     # (2) Exclude any cluster stars based on our constraint function
     # (3) Exclude any field stars based on our constraint function
     for index, row in enumerate(data):
-        constraint_function = field_star_constraints \
-            if row[cluster_name_column] == "" else cluster_star_constraints
+        constraint_function = field_star_constraints if \
+            row["FIELD/CLUSTER"] == FIELD_IDENTIFIER else \
+            cluster_star_constraints
         included[index] *= constraint_function(row)
 
     # (4) Randomly pick `num_clusters` names
     included_cluster_names = set(cluster_names).difference(exclude_clusters)
     if not np.isposinf(num_clusters):
         if num_clusters == len(included_cluster_names):
-            logger.warn("Number of clusters requested matches the total number "
+            logging.warn("Number of clusters requested matches the total number "
                 "of clusters present.")
         else:
             # Randomly pick `num_clusters` from the subset
@@ -249,8 +254,7 @@ def create(data, num_clusters=np.inf, exclude_clusters=None,
     cluster_sizes = {}
     chosen_cluster_indices = []
     for cluster_name in included_cluster_names:
-        indices = (data[cluster_name_column] == member_prefix + cluster_name)
-
+        indices = data["FIELD/CLUSTER"] == cluster_name
         num_members = indices.sum()
         default_min, default_max = 0, num_members
         if cluster_size_limits is not None:
@@ -285,11 +289,11 @@ def create(data, num_clusters=np.inf, exclude_clusters=None,
         num_cluster_stars = len(chosen_cluster_indices)
         num_field_stars = int(round((field_star_fraction * num_cluster_stars) \
             / (1. - field_star_fraction)))
-        logger.debug("Calculated number of field stars to be {0:.0f} to give a "
+        logging.debug("Calculated number of field stars to be {0:.0f} to give a "
             "field star fraction of {1:.2f} with {2:.0f} cluster stars".format(
                 num_field_stars, field_star_fraction, num_cluster_stars))
 
-        indices = np.where(data[cluster_name_column] == "")[0]
+        indices = np.where(data["FIELD/CLUSTER"] == FIELD_IDENTIFIER)[0]
         if len(indices) < num_field_stars:
             raise OverConstrainedRealisationException("There are not enough "
                 "field stars to yield the required field star fraction. For "
@@ -299,7 +303,7 @@ def create(data, num_clusters=np.inf, exclude_clusters=None,
                     num_field_stars, field_star_fraction, len(indices)))
 
         if len(indices) == num_field_stars:
-            logger.warn("The number of available field stars matches the number"
+            logging.warn("The number of available field stars matches the number"
                 "required to yield a field star fraction of {0:.2f}".format(
                     field_star_fraction))
 
