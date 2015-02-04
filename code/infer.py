@@ -292,7 +292,7 @@ def cluster_count(stars, data_columns, model, perturb_within_uncertainties=False
             data[:, i] = stars[c][:]
 
     kwds = kwargs.copy()
-    kwds["full_output"] = True
+    kwds.pop("metric", None) # Remove metric in case we have to specify it.
 
     # Do the fitting.
     if model == "GMM/AIC":
