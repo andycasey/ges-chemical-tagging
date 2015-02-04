@@ -8,6 +8,10 @@ __author__ = "Andy Casey <arc@ast.cam.ac.uk>"
 
 # Standard library.
 import logging
+import multiprocessing as mp
+import threading
+import warnings
+from multiprocessing.pool import ThreadPool
 
 # Third-party.
 import numpy as np
@@ -16,8 +20,14 @@ from astropy.table import Column, Table
 from scipy import linalg
 from sklearn import mixture
 
-# Create logger.
+# Create loggers.
 logger = logging.getLogger(__name__)
+mp_logger = mp.log_to_stderr()
+mp_logger.setLevel(mp.SUBDEBUG)
+
+class InsufficientSamplesWarning(Warning):
+    pass
+warnings.simplefilter("once", InsufficientSamplesWarning)
 
 def cluster_count_by_dpgmm(data, max_components=100, **kwargs):
     """
@@ -30,16 +40,32 @@ def cluster_count_by_dpgmm(data, max_components=100, **kwargs):
     :type data:
         :class:`numpy.array`
     """
+    logger.debug("Inferring cluster number by DPGMM")
+
+    if max_components > len(data):
+        warnings.warn("Maximum number of components exceeded the sample size. S"
+            "etting the maximum number of components equal to the sample size."\
+            .format(max_components, len(data)), InsufficientSamplesWarning)
+        max_components = len(data)
 
     # Extras.
     full_output = kwargs.pop("full_output", False)
+    mp_queue = kwargs.pop("__mp_queue", False)
 
     # Defaults.
     kwargs.setdefault("covariance_type", "full")
 
     # Fit stuff.
     model = mixture.DPGMM(max_components, **kwargs)
-    model.fit(data)
+    try:
+        model.fit(data)
+    except ValueError:
+        logger.exception("Failed to infer cluster count by DPGMM:")
+        if full_output:
+            if mp_queue: mp_queue.put((-1, model))
+            return (-1, model)
+        if mp_queue: mp_queue.put(-1)
+        return -1
 
     # Now actually find out how many components were used
     Y, components = model.predict(data), 0
@@ -50,7 +76,9 @@ def cluster_count_by_dpgmm(data, max_components=100, **kwargs):
             components += 1
 
     if full_output:
+        if mp_queue: mp_queue.put((components, model))
         return (components, model)
+    if mp_queue: mp_queue.put(components)
     return components
 
 
@@ -65,16 +93,32 @@ def cluster_count_by_vbgmm(data, max_components=100, **kwargs):
     :type data:
         :class:`numpy.array`
     """
+    logger.debug("Inferring cluster number by VBGMM")
+
+    if max_components > len(data):
+        warnings.warn("Maximum number of components exceeded the sample size. S"
+            "etting the maximum number of components equal to the sample size."\
+            .format(max_components, len(data)), InsufficientSamplesWarning)
+        max_components = len(data)
 
     # Extras.
     full_output = kwargs.pop("full_output", False)
+    mp_queue = kwargs.pop("__mp_queue", False)
 
     # Defaults.
     kwargs.setdefault("covariance_type", "full")
 
     # Fit stuff.
     model = mixture.VBGMM(max_components, **kwargs)
-    model.fit(data)
+    try:
+        model.fit(data)
+    except ValueError:
+        logger.exception("Failed to infer cluster count by VBGMM:")
+        if full_output:
+            if mp_queue: mp_queue.put((-1, model))
+            return (-1, model)
+        if mp_queue: mp_queue.put(-1)
+        return -1
 
     # Now actually find out how many components were used
     Y, components = model.predict(data), 0
@@ -85,7 +129,9 @@ def cluster_count_by_vbgmm(data, max_components=100, **kwargs):
             components += 1
 
     if full_output:
+        if mp_queue: mp_queue.put((components, model))
         return (components, model)
+    if mp_queue: mp_queue.put(components)
     return components
 
 
@@ -116,11 +162,13 @@ def cluster_count_by_gmm(data, max_components=100, metric="AIC", **kwargs):
     :type metric:
         str
     """
+    logger.debug("Inferring cluster number by GMM {}".format(metric))
 
     metric = metric.upper()
 
     # Remove unnecessary keywords.
     full_output = kwargs.pop("full_output", False)
+    mp_queue = kwargs.pop("__mp_queue", False)
     num_past_minimum = kwargs.pop("n_components_past_minimum", 5)
     kwargs.pop("n_components", None)
 
@@ -131,8 +179,18 @@ def cluster_count_by_gmm(data, max_components=100, metric="AIC", **kwargs):
     for i in range(1, max_components + 1):
         # Fit the data
         model = mixture.GMM(n_components=i, **kwargs)
-        model.fit(data)
 
+        try:
+            model.fit(data)
+        except ValueError:
+            logger.exception("Failed to infer cluster count by GMM/{}:".format(
+                metric))
+            if full_output:
+                if mp_queue: mp_queue.put((-1, model, metrics))
+                return (-1, model, metrics)
+            if mp_queue: mp_queue.put(-1)
+            return -1
+            
         # Determine the metric that we will decide with.
         if metric == "AIC":
             _ = model.aic(data)
@@ -159,7 +217,9 @@ def cluster_count_by_gmm(data, max_components=100, metric="AIC", **kwargs):
         model = mixture.GMM(n_components=num_clusters, **kwargs)
         model.fit(data)
 
+        if mp_queue: mp_queue.put((num_clusters, model, metrics))
         return (num_clusters, model, metrics)
+    if mp_queue: mp_queue.put(num_clusters)
     return num_clusters
 
 
@@ -201,6 +261,12 @@ def cluster_count(stars, data_columns, model, perturb_within_uncertainties=False
         bool
     """
 
+    prefix = kwargs.pop("__mp_return_prefix", None)
+    result = []
+    if prefix is not None:
+        result.append(prefix)
+        logger.debug("Inferring on parallel job #{}".format(prefix))
+    
     if not isinstance(stars, Table):
         raise TypeError("stars must be a :class:`astropy.table.Table` object")
 
@@ -234,19 +300,123 @@ def cluster_count(stars, data_columns, model, perturb_within_uncertainties=False
 
     # Do the fitting.
     if model == "GMM/AIC":
-        result = cluster_count_by_gmm(data, metric="AIC", **kwds)
+        result += cluster_count_by_gmm(data, metric="AIC", **kwds)
     elif model == "GMM/BIC":
-        result = cluster_count_by_gmm(data, metric="BIC", **kwds)
+        result += cluster_count_by_gmm(data, metric="BIC", **kwds)
     elif model == "DPGMM":
-        result = cluster_count_by_dpgmm(data, **kwds)
+        result += cluster_count_by_dpgmm(data, **kwds)
     elif model == "VBGMM":
-        result = cluster_count_by_vbgmm(data, **kwds)
+        result += cluster_count_by_vbgmm(data, **kwds)
     else:
         raise WTFError()
 
     return result
 
-
 # Update the docstring
 cluster_count.__doc__ = cluster_count.__doc__.format(
     models=", ".join(__available_models))
+
+
+def parallel_cluster_count(stars, data_columns, perturb_within_uncertainties=False,
+    **kwargs):
+    """
+    Infer the cluster counts in parallel by using all available models.
+
+    """
+
+    if perturb_within_uncertainties:
+        raise NotImplementedError
+
+    # Do some of the top level operatons and checking to avoid repetition.
+    if not isinstance(stars, Table):
+        raise TypeError("stars must be a :class:`astropy.table.Table` object")
+
+    if not isinstance(data_columns, (tuple, list, np.array)):
+        raise TypeError("data columns expected to be a tuple of str")
+
+    # Check the columns exist.
+    for c in data_columns:
+        if c not in stars.dtype.names:
+            raise ValueError("column '{}' is not in the stars table".format(c))
+        if perturb_within_uncertainties \
+        and "E_{}".format(c) not in stars.dtype.names:
+            raise ValueError("cannot perturb within uncertainties for column "
+                "'{0}' because it does not have an error column 'E_{0} exist "
+                "in the star table".format(c))
+
+    # Build data array
+    data = np.zeros((len(stars), len(data_columns)), dtype=float)
+    for i, c in enumerate(data_columns):
+        if perturb_within_uncertainties:
+            data[:, i] = np.random.normal(stars[c], stars["E_{}".format(c)])
+        else:
+            data[:, i] = stars[c][:]
+
+    """
+    pool = mp.Pool(4)
+    processes = []
+    results = []
+    def holla_back_girl(_):
+        results.append(_)
+    for model in __available_models:
+        target = {
+            "GMM/AIC": cluster_count_by_gmm,
+            "GMM/BIC": cluster_count_by_gmm,
+            "DPGMM": cluster_count_by_dpgmm,
+            "VBGMM": cluster_count_by_vbgmm
+        }[model]
+        kwds = kwargs.copy()
+        if model.startswith("GMM"):
+            kwds["metric"] = model.split("/")[1]
+        
+        processes.append(pool.apply_async(target, args=(data, ), kwds=kwds, callback=holla_back_girl))
+
+    #results = [p.get() for p in processes]
+    pool.close()
+    pool.join()
+    """
+
+    """
+    threads = []
+    for model in __available_models:
+        target = {
+            "GMM/AIC": cluster_count_by_gmm,
+            "GMM/BIC": cluster_count_by_gmm,
+            "DPGMM": cluster_count_by_dpgmm,
+            "VBGMM": cluster_count_by_vbgmm
+        }[model]
+        kwds = kwargs.copy()
+        if model.startswith("GMM"):
+            kwds["metric"] = model.split("/")[1]
+
+        threads.append(threading.Thread(target=target, args=(data, ), kwargs=kwds))
+        threads[-1].start()
+    """
+    #p = ThreadPool(processes=4)
+    p = mp.Pool(4)
+    threads = []
+    for model in __available_models:
+        target = {
+            "GMM/AIC": cluster_count_by_gmm,
+            "GMM/BIC": cluster_count_by_gmm,
+            "DPGMM": cluster_count_by_dpgmm,
+            "VBGMM": cluster_count_by_vbgmm
+        }[model]
+        kwds = kwargs.copy()
+        kwds["full_output"] = False
+        if model.startswith("GMM"):
+            kwds["metric"] = model.split("/")[1]
+
+        threads.append(p.apply_async(target, args=(data, ), kwds=kwds))
+
+    results = [_.get() for _ in threads]
+    p.close()
+    p.join()
+
+    del p, threads
+
+    return results
+
+
+    return dict(zip(__available_models, results))
+

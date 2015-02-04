@@ -56,7 +56,7 @@ class DataSet(object):
         return cls(data)
 
 
-    def writeto(self, filename, **kwargs):
+    def write(self, filename, **kwargs):
         """
         Write the `DataSet` to a new file.
 
@@ -114,7 +114,6 @@ class DataSet(object):
         :type star_filter:
             callable or str
         """
-
         return self._assign_cluster(cluster_name, star_filter)
 
 

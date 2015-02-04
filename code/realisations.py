@@ -10,6 +10,7 @@ __all__ = ("create", "perturb_abundances")
 # Standard library
 import logging
 import random
+import warnings
 from hashlib import md5
 
 # Third-party
@@ -22,7 +23,12 @@ logger = logging.getLogger(__name__)
 # Reproducibility is key.
 #random.seed(888)
 
-def create(dataset, num_clusters=np.inf, exclude_clusters=None,
+# Warn the user if they asked for more clusters than what was available.
+class InsufficientClustersAvailableWarning(Warning):
+    pass
+warnings.simplefilter("once", InsufficientClustersAvailableWarning)
+
+def create(dataset, num_clusters=None, exclude_clusters=None,
     cluster_size_limits=None, field_star_fraction=0, 
     cluster_star_constraints=None, field_star_constraints=None, **kwargs):
     """
@@ -45,11 +51,14 @@ def create(dataset, num_clusters=np.inf, exclude_clusters=None,
         :class:`data.DataSet`
 
     :param num_clusters: [optional]
-        The number of clusters to draw from. By default the realisation will
-        draw from all clusters.
+        The number of clusters to draw from. If `None` is provided (default) the
+        realisation will pick a random (uniform) number of clusters up to the 
+        limit of what is available. Use `np.inf` to draw from all clusters. If
+        the number of clusters requested exceeds that available, the behaviour
+        will be the same as using `np.inf` except a warning will also be made.
 
     :type num_clusters:
-        int
+        None or int
 
     :param exclude_clusters: [optional]
         A list of cluster names to exclude in this realisation.
@@ -100,11 +109,11 @@ def create(dataset, num_clusters=np.inf, exclude_clusters=None,
         fathom to consider yet.
 
     """
+    
     if not hasattr(dataset, "data") or not isinstance(dataset.data, Table):
         raise TypeError("data table must be a data.DataSet object")
 
-    # number of clusters is +infinity by default (e.g., all)
-    if not np.isposinf(num_clusters):
+    if num_clusters is not None and not np.isposinf(num_clusters):
         try:
             num_clusters = int(num_clusters)
         except (TypeError, ValueError):
@@ -134,7 +143,6 @@ def create(dataset, num_clusters=np.inf, exclude_clusters=None,
         if minimum is not None and maximum is not None and minimum > maximum:
             raise ValueError("maximum cluster size must be greater than the "
                 "minimum cluster size")
-
     try:
         field_star_fraction = float(field_star_fraction)
     except (TypeError, ValueError):
@@ -202,14 +210,12 @@ def create(dataset, num_clusters=np.inf, exclude_clusters=None,
     as 'MEMBER_<CLUSTER_NAME>', but those that were targetted (and no velocity
     cut was made) are labelled as 'CANDIDATE_<CLUSTER_NAME>'
     """
-    FIELD_IDENTIFIER = kwargs.pop("__FIELD_IDENTIFIER", "FIELD")
 
     data = dataset.data
-
+    FIELD_IDENTIFIER = kwargs.pop("__FIELD_IDENTIFIER", "FIELD")
     cluster_names = [each for each in \
         set(data["FIELD/CLUSTER"]).difference([FIELD_IDENTIFIER]) \
         if not each.endswith("?")]
-
     logging.debug("There are {0} clusters with confirmed members: {1}".format(
         len(cluster_names), ", ".join(cluster_names)))
 
@@ -238,21 +244,27 @@ def create(dataset, num_clusters=np.inf, exclude_clusters=None,
 
     # (4) Randomly pick `num_clusters` names
     included_cluster_names = set(cluster_names).difference(exclude_clusters)
-    if not np.isposinf(num_clusters):
-        if num_clusters == len(included_cluster_names):
-            logging.warn("Number of clusters requested matches the total number "
-                "of clusters present.")
-        else:
-            # Randomly pick `num_clusters` from the subset
-            included_cluster_names = random.sample(included_cluster_names,
-                num_clusters)
+    if num_clusters is None: # Pro-Tip: np.isposinf(None) raises TypeError :)
+        # This forces at least one cluster to be drawn from the sample.
+        num_clusters = int(round(random.uniform(1, len(included_cluster_names))))
 
-            logging.debug("Chose {0} clusters: {1}".format(num_clusters,
-                ", ".join(included_cluster_names)))
-    else:
-        logging.debug("Using all non-excluded clusters because num_clusters = "\
-            "+infinity")
+    elif np.isposinf(num_clusters):
+        num_clusters = len(included_cluster_names)
 
+    elif num_clusters > len(included_cluster_names):
+        warnings.warn("Number of requested clusters exceeds the available "
+            "clusters after accounting for exclusions ({0} > {1}). Setting the "
+            "number of clusters to be {1}".format(
+                num_clusters, len(included_cluster_names)),
+            InsufficientClustersAvailableWarning)
+        num_clusters = len(included_cluster_names)
+
+    # Randomly pick `num_clusters` from the subset
+    included_cluster_names = random.sample(included_cluster_names,
+        num_clusters)
+    logging.debug("Chose {0} clusters: {1}".format(num_clusters,
+        ", ".join(included_cluster_names)))
+    
     # (5) In each cluster, pick a number between cluster_size_limits, or if none
     #     are given, somewhere between (0, number_of_stars).
     cluster_sizes = {}
@@ -278,7 +290,7 @@ def create(dataset, num_clusters=np.inf, exclude_clusters=None,
             limits = (default_min, default_max)
 
         # Pick a random number of members for this cluster
-        num_chosen_members = random.randint(*limits)
+        num_chosen_members = np.clip(random.randint(*limits), 0, num_members)
         cluster_sizes[cluster_name] = num_chosen_members
 
         # (6) Randomly select non-duplicating rows in each cluster to identify 

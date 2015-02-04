@@ -7,7 +7,13 @@ from __future__ import absolute_import, print_function, with_statement
 __author__ = "Andy Casey <arc@ast.cam.ac.uk>"
 
 # Standard library.
+import cPickle as pickle
 import logging
+import multiprocessing as mp
+
+# Third-party.
+import numpy as np
+from astropy.table import Table
 
 # Module-specific.
 import code as tagging
@@ -93,10 +99,12 @@ logger = logging.getLogger("code")
 # some columns of data >> save the results from each realisation to disk.
 
 # PLOTTING
+# Transfer over .matplotlibrc file and update as necessary
 # Create way to plot hexbins/etc in some easy way.
 # Create way to plot discretised Ncluster_true along the x-axis too.
 
 # Make plots for all tests
+
 
 # OPEN QUESTIONS:
 # (1) Should any clusters be excluded because they are not really representative
@@ -106,37 +114,137 @@ logger = logging.getLogger("code")
 # (3) With the faux data, how do the tests scale to very large Ncluster?
 # (4) Do we need to really use WAIC?
 
-
-# SHOULD WE:
-# Load dataset.
-dataset = tagging.DataSet.from_fits("data/GES_iDR2iDR3_WG10+WG11.fits",
+# Load the stuff
+dataset = tagging.DataSet.from_fits("data/ges-no-member-criteria.fits",
     extension=1)
+with open("realisations/test_1.pickle", "rb") as fp:
+    all_realisations = pickle.load(fp)
 
-# Assign field/cluster stars.
-# Unless otherwise told, this star is in the field:
-dataset.data["FIELD/CLUSTER"] = "FIELD"
+# Specify the keywords for Test 1 w/ AIC
+test_1_kwds = {
+    "model": "GMM/AIC", # Available: GMM/AIC, GMM/BIC, DPGMM, VBGMM
+    "data_columns": ["RA", "DEC"],
+    "full_output": False,
+    "covariance_type": "full",
+    "perturb_within_uncertainties": False,
+}
 
-# [TODO] Delete benchmarks
-clusters = ("Cha_I", "Br81", "M15", "NGC2808", "NGC6633", "IC4665", "NGC104",
-    "gamma2_Vel", "GJ880", "NGC4815", "NGC2547", "NGC5927", "NGC4833",
-    "NGC1851", "NGC2243", "NGC3532", "NGC6752", "Br25", "NGC4372", "NGC6705",
-    "M67", "NGC2516", "Trumpler20")
+output = []
+pool = mp.Pool(processes=50)
+def callback(_):
+    output.append(_)
 
-# [TODO] Assign candidates?
-# Assign members.
-for cluster in clusters:
-    members = dataset.assign_cluster_members(cluster,
-        lambda row: row["TARGET"].startswith(cluster))
+for i, (indices, true_clusters, unique_hash) in enumerate(all_realisations):
+    kwds = test_1_kwds.copy()
+    kwds["__mp_return_prefix"] = i
+    pool.apply_async(tagging.infer.cluster_count, args=(dataset.data[indices], ),
+        kwds=kwds, callback=callback)
 
-    # Special hack:
-    if cluster == "Trumpler20":
-        members += dataset.assign_cluster_members(cluster,
-            lambda row: row["TARGET"].startswith("Trumpler_20"))
-    print("Cluster {0} has {1} members".format(cluster, members))
+# Winter is coming.
+pool.close()
+logger.info("Pool closed. Joining...")
 
-# Save the dataset.
-#dataset.write("data/ges-no-member-criteria.fits")
+try:
+    pool.join()
+    
+except KeyboardInterrupt:
+    # Screw it. Use as is!
+    logger.warn("Assuming we have timed out. Pool is not closed!")
 
+logger.info("Collating results together...")
+
+# Plot stuff from the results? Nah...
+results = []
+for each in output:
+    realisation = all_realisations[each[0]]
+    # Unique hash, true clusters, inferred clusters.
+    results.append([realisation[2], len(realisation[1]), each[1]])
+
+# Create a table of the results from this realisation.
+results = Table(data=np.array(results), names=("hash", "N_true", "N_AIC"),
+    dtype=("S32", "i4", "i4"))
+
+# Write the test results to disk.
+results.write("results/test_1_AIC.fits", overwrite=True)
+
+# Make plots.
+fig, ax = plt.subplots()
+ok = results["N_AIC"] > 0
+ax.scatter(results["N_true"][ok], results["N_AIC"][ok]-results["N_true"][ok],
+    facecolor="k")
+
+raise a
+
+"""
+
+# Now let's try and infer the number of clusters in each realisation.
+test_results = []
+logger.info("Inferring cluster numbers from realisations")
+times = []
+for i, (indices, true_clusters, unique_hash) in enumerate(all_realisations):
+
+    t_init = time()
+
+    # Infer the number of clusters using AIC.
+    inferred_clusters_by_aic, gmm_model_aic, aics = tagging.infer.cluster_count(
+        dataset.data[indices], model="GMM/AIC", **test_1_kwds)
+
+    # Infer the number of clusters using BIC.
+    inferred_clusters_by_bic, gmm_model_bic, bics = tagging.infer.cluster_count(
+        dataset.data[indices], model="GMM/BIC", **test_1_kwds)
+
+    # Infer the number of clusters using a DPGMM.
+    inferred_clusters_by_dpgmm, dpgmm_model = tagging.infer.cluster_count(
+        dataset.data[indices], model="DPGMM", **test_1_kwds)
+
+    # Infer the number of clusters using a VBGMM.
+    inferred_clusters_by_vbgmm, vbgmm_model = tagging.infer.cluster_count(
+        dataset.data[indices], model="VBGMM", **test_1_kwds)
+
+    t_init2 = time()
+    print("serial {}".format(t_init2 - t_init))
+
+    results = tagging.infer.parallel_cluster_count(dataset.data[indices], **test_1_kwds)
+
+    times.append([t_init2 - t_init, time() - t_init2])
+
+    print(i, times[-1])
+    continue
+    # [TODO] Store the AICS and BICS?
+    fig, ax = plt.subplots(2)
+    # Take first two data columns only
+    x = dataset.data[test_1_kwds["data_columns"][0]][indices]
+    y = dataset.data[test_1_kwds["data_columns"][1]][indices]
+    ax[0].scatter(x, y, facecolor="k")
+    ax[0].set_xlabel(test_1_kwds["data_columns"][0])
+    ax[0].set_ylabel(test_1_kwds["data_columns"][1])
+    ax[1].plot(np.arange(len(aics)) + 1, aics, c="r", lw=2, label="AIC")
+    ax[1].plot(np.arange(len(bics)) + 1, bics, c="b", lw=2, label="BIC")
+    ax[1].scatter(inferred_clusters_by_aic, aics[inferred_clusters_by_aic - 1], facecolor="r", s=50)
+    ax[1].scatter(inferred_clusters_by_bic, bics[inferred_clusters_by_bic - 1], facecolor="b", s=50)
+    ax[1].axvline(len(true_clusters), c="k", lw=2)
+    ax[1].axvline(inferred_clusters_by_dpgmm, c="k", ls=":", label="DPGMM")
+    ax[1].axvline(inferred_clusters_by_vbgmm, c="K", ls="-.", label="VBGMM")
+    ax[1].legend()
+    ax[1].set_xlim(1, max(map(len, [aics, bics])) + 1)
+    fig.savefig("figures/test1-{}.png".format(unique_hash))
+    plt.close("all")
+
+    # Store the results for this realisation.
+    row = [
+        unique_hash, len(true_clusters), inferred_clusters_by_aic,
+        inferred_clusters_by_bic, inferred_clusters_by_dpgmm,
+        inferred_clusters_by_vbgmm
+    ]
+    logger.debug("Results from realisation {0}: {1}".format(i, row))
+    test_results.append(row)
+
+raise a
+"""
+
+
+
+"""
 
 rs_indices, rs_counts, rs_hash = tagging.realisations.create(dataset,
     exclude_clusters=["Br25"], num_clusters=5)
@@ -167,17 +275,4 @@ ax.plot(np.arange(aics.size) + 1, aics, c="b", linestyle="-.", label="GMM/AIC")
 ax.plot(np.arange(bics.size) + 1, bics, c="k", linestyle="-.", label="GMM/BIC")
 
 raise a
-
 """
-data, num_clusters=np.inf, exclude_clusters=None,
-    cluster_size_limits=None, field_star_fraction=0, 
-    cluster_star_constraints=None, field_star_constraints=None,
-"""
-# Create some realisation where we use all cluster stars.
-# Save the realisation information to disk.
-
-# Infer the number of clusters in the realisation data set using AIC/BIC/XGMM/VGMM/XD.
-# Save the information about the realisation, what data were used, and what was inferred.
-
-# Then create more complex cluster candidate/rules.
-# Then create more complex realisations.
