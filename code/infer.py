@@ -8,10 +8,8 @@ __author__ = "Andy Casey <arc@ast.cam.ac.uk>"
 
 # Standard library.
 import logging
-import multiprocessing as mp
 import threading
 import warnings
-from multiprocessing.pool import ThreadPool
 
 # Third-party.
 import numpy as np
@@ -22,8 +20,6 @@ from sklearn import mixture
 
 # Create loggers.
 logger = logging.getLogger(__name__)
-mp_logger = mp.log_to_stderr()
-mp_logger.setLevel(mp.SUBDEBUG)
 
 class InsufficientSamplesWarning(Warning):
     pass
@@ -315,108 +311,3 @@ def cluster_count(stars, data_columns, model, perturb_within_uncertainties=False
 # Update the docstring
 cluster_count.__doc__ = cluster_count.__doc__.format(
     models=", ".join(__available_models))
-
-
-def parallel_cluster_count(stars, data_columns, perturb_within_uncertainties=False,
-    **kwargs):
-    """
-    Infer the cluster counts in parallel by using all available models.
-
-    """
-
-    if perturb_within_uncertainties:
-        raise NotImplementedError
-
-    # Do some of the top level operatons and checking to avoid repetition.
-    if not isinstance(stars, Table):
-        raise TypeError("stars must be a :class:`astropy.table.Table` object")
-
-    if not isinstance(data_columns, (tuple, list, np.array)):
-        raise TypeError("data columns expected to be a tuple of str")
-
-    # Check the columns exist.
-    for c in data_columns:
-        if c not in stars.dtype.names:
-            raise ValueError("column '{}' is not in the stars table".format(c))
-        if perturb_within_uncertainties \
-        and "E_{}".format(c) not in stars.dtype.names:
-            raise ValueError("cannot perturb within uncertainties for column "
-                "'{0}' because it does not have an error column 'E_{0} exist "
-                "in the star table".format(c))
-
-    # Build data array
-    data = np.zeros((len(stars), len(data_columns)), dtype=float)
-    for i, c in enumerate(data_columns):
-        if perturb_within_uncertainties:
-            data[:, i] = np.random.normal(stars[c], stars["E_{}".format(c)])
-        else:
-            data[:, i] = stars[c][:]
-
-    """
-    pool = mp.Pool(4)
-    processes = []
-    results = []
-    def holla_back_girl(_):
-        results.append(_)
-    for model in __available_models:
-        target = {
-            "GMM/AIC": cluster_count_by_gmm,
-            "GMM/BIC": cluster_count_by_gmm,
-            "DPGMM": cluster_count_by_dpgmm,
-            "VBGMM": cluster_count_by_vbgmm
-        }[model]
-        kwds = kwargs.copy()
-        if model.startswith("GMM"):
-            kwds["metric"] = model.split("/")[1]
-        
-        processes.append(pool.apply_async(target, args=(data, ), kwds=kwds, callback=holla_back_girl))
-
-    #results = [p.get() for p in processes]
-    pool.close()
-    pool.join()
-    """
-
-    """
-    threads = []
-    for model in __available_models:
-        target = {
-            "GMM/AIC": cluster_count_by_gmm,
-            "GMM/BIC": cluster_count_by_gmm,
-            "DPGMM": cluster_count_by_dpgmm,
-            "VBGMM": cluster_count_by_vbgmm
-        }[model]
-        kwds = kwargs.copy()
-        if model.startswith("GMM"):
-            kwds["metric"] = model.split("/")[1]
-
-        threads.append(threading.Thread(target=target, args=(data, ), kwargs=kwds))
-        threads[-1].start()
-    """
-    #p = ThreadPool(processes=4)
-    p = mp.Pool(4)
-    threads = []
-    for model in __available_models:
-        target = {
-            "GMM/AIC": cluster_count_by_gmm,
-            "GMM/BIC": cluster_count_by_gmm,
-            "DPGMM": cluster_count_by_dpgmm,
-            "VBGMM": cluster_count_by_vbgmm
-        }[model]
-        kwds = kwargs.copy()
-        kwds["full_output"] = False
-        if model.startswith("GMM"):
-            kwds["metric"] = model.split("/")[1]
-
-        threads.append(p.apply_async(target, args=(data, ), kwds=kwds))
-
-    results = [_.get() for _ in threads]
-    p.close()
-    p.join()
-
-    del p, threads
-
-    return results
-
-
-    return dict(zip(__available_models, results))
-

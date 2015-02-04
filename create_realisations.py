@@ -9,6 +9,7 @@ __author__ = "Andy Casey <arc@ast.cam.ac.uk>"
 # Standard library.
 import cPickle as pickle
 import logging
+import multiprocessing as mp
 
 # Third-party.
 import numpy as np
@@ -106,11 +107,27 @@ realisation_kwds = {
     "field_star_constraints": None # No constraints on field stars
 }
 
-
 # Create the realisations for Test 1
 logger.info("Creating {0} realisations".format(num_realisations))
-all_realisations = [tagging.realisations.create(dataset, **realisation_kwds) \
-    for _ in xrange(int(num_realisations))]
+
+def func(_):
+    return tagging.realisations.create(dataset, **realisation_kwds)
+
+pool = mp.Pool(processes=50)
+all_realisations = []
+def callback(_):
+    global all_realisations
+    all_realisations.append(_)
+
+r = pool.map_async(func, xrange(int(num_realisations)), callback=callback)
+r.wait()
+
+# Winter is coming.
+pool.close()
+pool.join()
+
+# Because Python.
+all_realisations = all_realisations[0]
 
 # Save the realisations for Test 1
 with open("realisations/test_1.pickle", "wb") as fp:

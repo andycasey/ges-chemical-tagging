@@ -11,6 +11,7 @@ import cPickle as pickle
 import logging
 import multiprocessing as mp
 
+
 # Third-party.
 import numpy as np
 from astropy.table import Table
@@ -18,7 +19,11 @@ from astropy.table import Table
 # Module-specific.
 import code as tagging
 
+# Create loggers.
 logger = logging.getLogger("code")
+mp_logger = mp.log_to_stderr()
+mp_logger.setLevel(mp.SUBDEBUG)
+
 
 # PREPARATION
 # Create some data set.
@@ -146,7 +151,7 @@ logger.info("Pool closed. Joining...")
 
 try:
     pool.join()
-    
+
 except KeyboardInterrupt:
     # Screw it. Use as is!
     logger.warn("Assuming we have timed out. Pool is not closed!")
