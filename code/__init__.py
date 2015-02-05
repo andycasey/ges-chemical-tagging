@@ -8,7 +8,7 @@ __author__ = "Andy Casey <arc@ast.cam.ac.uk>"
 import logging
 
 # Module-specific.
-from . import (data, infer, realisations)
+from . import (data, infer, realisations, plot)
 from .data import DataSet
 
 logging.basicConfig(level=logging.DEBUG)

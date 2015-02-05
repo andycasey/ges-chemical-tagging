@@ -131,7 +131,7 @@ def cluster_count_by_vbgmm(data, max_components=100, **kwargs):
     return components
 
 
-def cluster_count_by_gmm(data, max_components=100, metric="AIC", **kwargs):
+def cluster_count_by_gmm(data, max_components=100, metric=None, **kwargs):
     """
     Determine the number of clusters by fitting Gaussian mixture models and 
     minimising some metric (e.g., AIC/BIC).
@@ -153,25 +153,26 @@ def cluster_count_by_gmm(data, max_components=100, metric="AIC", **kwargs):
 
     :param metric: [optional]
         The metric to use to determine how many components there are. Options
-        are 'AIC' (default) or 'BIC'.
+        are 'AIC' or 'BIC'. Default is both, in order of AIC, BIC.
 
     :type metric:
         str
     """
     logger.debug("Inferring cluster number by GMM {}".format(metric))
 
-    metric = metric.upper()
+    if isinstance(metric, (str, unicode)):
+        metric = metric.upper()
 
     # Remove unnecessary keywords.
     full_output = kwargs.pop("full_output", False)
-    mp_queue = kwargs.pop("__mp_queue", False)
     num_past_minimum = kwargs.pop("n_components_past_minimum", 5)
     kwargs.pop("n_components", None)
 
     # Defaults:
     kwargs.setdefault("covariance_type", "full")
 
-    metrics = []
+    aics = []
+    bics = []
     for i in range(1, max_components + 1):
         # Fit the data
         model = mixture.GMM(n_components=i, **kwargs)
@@ -182,45 +183,39 @@ def cluster_count_by_gmm(data, max_components=100, metric="AIC", **kwargs):
             logger.exception("Failed to infer cluster count by GMM/{}:".format(
                 metric))
             if full_output:
-                if mp_queue: mp_queue.put((-1, model, metrics))
-                return (-1, model, metrics)
-            if mp_queue: mp_queue.put(-1)
-            return -1
-            
-        # Determine the metric that we will decide with.
-        if metric == "AIC":
-            _ = model.aic(data)
-            metrics.append(_)
+                return [-1, -1, aics, bics]
+            return [-1, -1]
+        
+        # Calculate statistics
+        aics.append(model.aic(data))
+        bics.append(model.bic(data))
 
-        elif metric == "BIC":
-            _ = model.bic(data)
-            metrics.append(_)
+        # Do we need to keep going?
+        if metric == "AIC" \
+            and (aics[-1] > min(aics) and i - np.argmin(aics) > num_past_minimum) \
+        or metric == "BIC" \
+            and (bics[-1] > min(bics) and i - np.argmin(bics) > num_past_minimum) \
+        or metric == None \
+            and (aics[-1] > min(aics) and i - np.argmin(aics) > num_past_minimum \
+            and bics[-1] > min(bics) and i - np.argmin(bics) > num_past_minimum):
+                break
 
-        else:
-            raise TypeError("do not recognise metric {}".format(metric))
-
-        # Have we already found the minimum?
-        if _ > min(metrics) and i - np.argmin(metrics) > num_past_minimum:
-            break
-
-    metrics = np.array(metrics)
-    if metrics.size == max_components:
+    aics, bics = map(np.array, (aics, bics))
+    if aics.size == max_components:
         logger.warn("Maximum number of components ({}) reached!".format(
             max_components))
 
-    num_clusters = np.argmin(metrics) + 1 # Indexing
+    # Which one should we be returning on?
+    num_clusters_aic = np.argmin(aics) + 1
+    num_clusters_bic = np.argmin(bics) + 1
+
     if full_output:
-        model = mixture.GMM(n_components=num_clusters, **kwargs)
-        model.fit(data)
-
-        if mp_queue: mp_queue.put((num_clusters, model, metrics))
-        return (num_clusters, model, metrics)
-    if mp_queue: mp_queue.put(num_clusters)
-    return num_clusters
+        return [num_clusters_aic, num_clusters_bic, aics, bics]
+    return [num_clusters_aic, num_clusters_bic]
 
 
 
-__available_models = ("GMM/AIC", "GMM/BIC", "DPGMM", "VBGMM")
+__available_models = ("GMM", "GMM/AIC", "GMM/BIC", "DPGMM", "VBGMM")
 def cluster_count(stars, data_columns, model, perturb_within_uncertainties=False,
     **kwargs):
     """
@@ -295,16 +290,20 @@ def cluster_count(stars, data_columns, model, perturb_within_uncertainties=False
     kwds.pop("metric", None) # Remove metric in case we have to specify it.
 
     # Do the fitting.
-    if model == "GMM/AIC":
-        result += cluster_count_by_gmm(data, metric="AIC", **kwds)
+    if model == "GMM":
+        _ = cluster_count_by_gmm(data, **kwds)
+    elif model == "GMM/AIC":
+        _ = cluster_count_by_gmm(data, metric="AIC", **kwds)
     elif model == "GMM/BIC":
-        result += cluster_count_by_gmm(data, metric="BIC", **kwds)
+        _ = cluster_count_by_gmm(data, metric="BIC", **kwds)
     elif model == "DPGMM":
-        result += cluster_count_by_dpgmm(data, **kwds)
+        _ = cluster_count_by_dpgmm(data, **kwds)
     elif model == "VBGMM":
-        result += cluster_count_by_vbgmm(data, **kwds)
+        _ = cluster_count_by_vbgmm(data, **kwds)
     else:
         raise WTFError()
+
+    result += list(_)
 
     return result
 

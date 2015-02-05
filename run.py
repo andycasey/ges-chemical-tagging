@@ -119,6 +119,10 @@ mp_logger.setLevel(mp.SUBDEBUG)
 # (3) With the faux data, how do the tests scale to very large Ncluster?
 # (4) Do we need to really use WAIC?
 
+output = []
+def callback(_):
+    output.append(_)
+
 # Load the stuff
 dataset = tagging.DataSet.from_fits("data/ges-no-member-criteria.fits",
     extension=1)
@@ -127,19 +131,18 @@ with open("realisations/test_1.pickle", "rb") as fp:
 
 # Specify the keywords for Test 1 w/ AIC
 test_1_kwds = {
-    "model": "GMM/AIC", # Available: GMM/AIC, GMM/BIC, DPGMM, VBGMM
+    "model": "GMM", # Available: GMM, GMM/AIC, GMM/BIC, DPGMM, VBGMM
     "data_columns": ["RA", "DEC"],
     "full_output": False,
     "covariance_type": "full",
     "perturb_within_uncertainties": False,
 }
 
-output = []
-pool = mp.Pool(processes=50)
-def callback(_):
-    output.append(_)
+N = 10000
+logger.info("Doing first {} realisations..".format(N))
 
-for i, (indices, true_clusters, unique_hash) in enumerate(all_realisations):
+pool = mp.Pool(processes=16)
+for i, (indices, true_clusters, unique_hash) in enumerate(all_realisations[:N]):
     kwds = test_1_kwds.copy()
     kwds["__mp_return_prefix"] = i
     pool.apply_async(tagging.infer.cluster_count, args=(dataset.data[indices], ),
@@ -147,14 +150,7 @@ for i, (indices, true_clusters, unique_hash) in enumerate(all_realisations):
 
 # Winter is coming.
 pool.close()
-logger.info("Pool closed. Joining...")
-
-try:
-    pool.join()
-
-except KeyboardInterrupt:
-    # Screw it. Use as is!
-    logger.warn("Assuming we have timed out. Pool is not closed!")
+pool.join()
 
 logger.info("Collating results together...")
 
@@ -162,23 +158,33 @@ logger.info("Collating results together...")
 results = []
 for each in output:
     realisation = all_realisations[each[0]]
-    # Unique hash, true clusters, inferred clusters.
-    results.append([realisation[2], len(realisation[1]), each[1]])
+    # Unique hash, true clusters, inferred clusters (AIC), inferred clusters (BIC)
+    results.append([realisation[2], len(realisation[1])] + list(each)[1:])
 
 # Create a table of the results from this realisation.
-results = Table(data=np.array(results), names=("hash", "N_true", "N_AIC"),
-    dtype=("S32", "i4", "i4"))
+results = Table(data=np.array(results),
+    names=("hash", "N_true", "N_AIC", "N_BIC"),
+    dtype=("S32", "i4", "i4", "i4"))
 
 # Write the test results to disk.
-results.write("results/test_1_AIC.fits", overwrite=True)
+results.write("results/test-1-GMM-{0:.0f}-realisations.fits", overwrite=True)
 
 # Make plots.
-fig, ax = plt.subplots()
-ok = results["N_AIC"] > 0
-ax.scatter(results["N_true"][ok], results["N_AIC"][ok]-results["N_true"][ok],
-    facecolor="k")
+plot_filename = "figures/test-1-GMM-AIC-{0:.0f}-realisations.pdf".format(N)
+fig = tagging.plot.histogram2d(results, column="N_AIC")
+fig.savefig(plot_filename, bbox_inches="tight", dpi=150)
+logger.info("Saved figure to {}".format(plot_filename))
 
-raise a
+plot_filename = "figures/test-1-GMM-BIC-{0:.0f}-realisations.pdf".format(N)
+fig = tagging.plot.histogram2d(results, column="N_BIC")
+fig.savefig(plot_filename, bbox_inches="tight", dpi=150)
+logger.info("Saved figure to {}".format(plot_filename))
+
+#fig, ax = plt.subplots()
+#ok = results["N_AIC"] > 0
+#ax.scatter(results["N_true"][ok], results["N_AIC"][ok]-results["N_true"][ok],
+#    facecolor="k")
+
 
 """
 
