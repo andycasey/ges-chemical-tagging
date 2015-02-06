@@ -49,8 +49,10 @@ def cluster_count_by_dpgmm(data, max_components=100, **kwargs):
     mp_queue = kwargs.pop("__mp_queue", False)
 
     # Fit stuff.
-    logger.debug("Setting DPGMM kwargs: {}".format(kwargs))
-    model = mixture.DPGMM(max_components, **kwargs)
+    kwds = kwargs.copy()
+    kwds["n_components"] = max_components
+    logger.debug("Setting DPGMM kwargs: {}".format(kwds))
+    model = mixture.DPGMM(**kwds)
     try:
         model.fit(data)
     except ValueError:
@@ -100,8 +102,10 @@ def cluster_count_by_vbgmm(data, max_components=100, **kwargs):
     mp_queue = kwargs.pop("__mp_queue", False)
 
     # Fit stuff.
-    logger.debug("Setting VBGMM kwargs: {}".format(kwargs))
-    model = mixture.VBGMM(max_components, **kwargs)
+    kwds = kwargs.copy()
+    kwds["n_components"] = max_components
+    logger.debug("Setting VBGMM kwargs: {}".format(kwds))
+    model = mixture.VBGMM(**kwds)
     try:
         model.fit(data)
     except ValueError:
@@ -166,7 +170,7 @@ def cluster_count_by_gmm(data, max_components=100, metric=None, **kwargs):
 
     aics = []
     bics = []
-    logger.debug("Setting GMM kwargs: {}".format(kwargs))
+    logger.debug("Setting GMM kwargs (varying n_components): {}".format(kwargs))
     for i in range(1, max_components + 1):
         # Fit the data
         model = mixture.GMM(n_components=i, **kwargs)
