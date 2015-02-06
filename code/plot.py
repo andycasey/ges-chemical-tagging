@@ -34,7 +34,7 @@ def cmap_discretize(cmap, N):
     return LinearSegmentedColormap(cmap.name + "_%d"%N, cdict, 1024)
 
 
-def histogram2d(results_table, column=None, bins=None, **kwargs):
+def histogram2d(results_table, column=None, bins=None, discretise=False, **kwargs):
     """
     Produce a 2D histogram showing the true number of clusters `N_true` on the
     x-axis, and the difference between the inferred and true cluster count
@@ -96,12 +96,16 @@ def histogram2d(results_table, column=None, bins=None, **kwargs):
     extent = [xedges[0], xedges[-1], yedges[0], yedges[-1]]
 
     # Create the colormap
-    max_colorbar_segments = kwargs.pop("__max_colorbar_segments", 10)
-    colorbar_labels = np.sort(list(set(map(int, 
-        np.linspace(heatmap.min(), heatmap.max(), max_colorbar_segments)))))
-    cmap = cmap_discretize(cubehelix.cmap(reverse=True, start=0.3, rot=-0.5),
-        len(colorbar_labels))
-    
+    if discretise:
+        max_colorbar_segments = kwargs.pop("__max_colorbar_segments", 10)
+        colorbar_labels = np.sort(list(set(map(int, 
+            np.linspace(heatmap.min(), heatmap.max(), max_colorbar_segments)))))
+        cmap = cmap_discretize(cubehelix.cmap(reverse=True, start=0.3, rot=-0.5),
+            len(colorbar_labels))
+
+    else:
+        cmap = cubehelix.cmap(reverse=True, start=0.3, rot=-0.5)
+        
     imshow_default_kwargs = {
         # Since we will save to PDF, we cannot use 'none' for interpolation:
         # http://matplotlib.org/examples/images_contours_and_fields/interpolation_none_vs_nearest.html
@@ -145,12 +149,13 @@ def histogram2d(results_table, column=None, bins=None, **kwargs):
 
     # Colorbar (has at most 10 labels)
     colorbar.set_label("$N_{\\rm realisations}$")
-    colorbar.locator = FixedLocator(np.arange(1, 
-        len(colorbar_labels) + 1) * heatmap.max()/len(colorbar_labels) \
-            - heatmap.max()/(2.*len(colorbar_labels)))
-    colorbar.formatter = FixedFormatter(["{:.0f}".format(np.floor(_)) \
-        for _ in colorbar_labels])
-    print("colobar", colorbar_labels)
+    if discretise:
+        colorbar.locator = FixedLocator(np.arange(1, 
+            len(colorbar_labels) + 1) * heatmap.max()/len(colorbar_labels) \
+                - heatmap.max()/(2.*len(colorbar_labels)))
+        colorbar.formatter = FixedFormatter(["{:.0f}".format(np.floor(_)) \
+            for _ in colorbar_labels])
+    
     # Remove ticks from colorbar
     colorbar.ax.get_children()[1].set_tick_params(width=0)
     colorbar.update_ticks()

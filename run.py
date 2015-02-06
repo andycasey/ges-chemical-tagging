@@ -118,7 +118,7 @@ mp_logger.setLevel(mp.SUBDEBUG)
 #     given cluster?
 # (3) With the faux data, how do the tests scale to very large Ncluster?
 # (4) Do we need to really use WAIC?
-
+"""
 output = []
 def callback(_):
     output.append(_)
@@ -180,10 +180,166 @@ fig = tagging.plot.histogram2d(results, column="N_BIC")
 fig.savefig(plot_filename, bbox_inches="tight", dpi=150)
 logger.info("Saved figure to {}".format(plot_filename))
 
-#fig, ax = plt.subplots()
-#ok = results["N_AIC"] > 0
-#ax.scatter(results["N_true"][ok], results["N_AIC"][ok]-results["N_true"][ok],
-#    facecolor="k")
+
+"""
+
+"""
+# Do TEST1 WITH DPGMM
+output = []
+def callback(_):
+    output.append(_)
+
+# Load the stuff
+dataset = tagging.DataSet.from_fits("data/ges-no-member-criteria.fits",
+    extension=1)
+with open("realisations/test_1.pickle", "rb") as fp:
+    all_realisations = pickle.load(fp)
+
+# Specify the keywords for Test 1 w/ AIC
+test_1_kwds = {
+    "model": "DPGMM", # Available: GMM, GMM/AIC, GMM/BIC, DPGMM, VBGMM
+    "data_columns": ["RA", "DEC"],
+    "full_output": False,
+    "covariance_type": "full",
+    "perturb_within_uncertainties": False,
+}
+
+N = 10000
+logger.info("Doing first {} realisations..".format(N))
+
+pool = mp.Pool(processes=16)
+for i, (indices, true_clusters, unique_hash) in enumerate(all_realisations[:N]):
+    kwds = test_1_kwds.copy()
+    kwds["__mp_return_prefix"] = i
+    pool.apply_async(tagging.infer.cluster_count, args=(dataset.data[indices], ),
+        kwds=kwds, callback=callback)
+
+# Winter is coming.
+pool.close()
+pool.join()
+
+logger.info("Collating results together...")
+
+# Plot stuff from the results? Nah...
+results = []
+for each in output:
+    realisation = all_realisations[each[0]]
+    # Unique hash, true clusters, inferred clusters (AIC), inferred clusters (BIC)
+    results.append([realisation[2], len(realisation[1])] + list(each)[1:])
+
+# Create a table of the results from this realisation.
+results = Table(data=np.array(results),
+    names=("hash", "N_true", "N_DPGMM"),
+    dtype=("S32", "i4", "i4"))
+
+# Write the test results to disk.
+results.write("results/test-1-DPGMM-{0:.0f}-realisations.fits".format(N), overwrite=True)
+
+# Make plots.
+plot_filename = "figures/test-1-DPGMM-{0:.0f}-realisations-non-discrete.pdf".format(N)
+fig = tagging.plot.histogram2d(results)
+fig.savefig(plot_filename, bbox_inches="tight", dpi=150)
+fig.savefig(plot_filename[:-4] + ".png", bbox_inches="tight", dpi=150)
+logger.info("Saved figure to {}".format(plot_filename))
+
+plot_filename = "figures/test-1-DPGMM-{0:.0f}-realisations.pdf".format(N)
+fig = tagging.plot.histogram2d(results, discretise=True)
+fig.savefig(plot_filename, bbox_inches="tight", dpi=150)
+fig.savefig(plot_filename[:-4] + ".png", bbox_inches="tight", dpi=150)
+logger.info("Saved figure to {}".format(plot_filename))
+
+plot_filename = "figures/test-1-DPGMM-{0:.0f}-realisations-non-discrete.pdf".format(N)
+fig = tagging.plot.histogram2d(results)
+fig.savefig(plot_filename, bbox_inches="tight", dpi=150)
+fig.savefig(plot_filename[:-4] + ".png", bbox_inches="tight", dpi=150)
+logger.info("Saved figure to {}".format(plot_filename))
+
+plot_filename = "figures/test-1-DPGMM-{0:.0f}-realisations.pdf".format(N)
+fig = tagging.plot.histogram2d(results, discretise=True)
+fig.savefig(plot_filename, bbox_inches="tight", dpi=150)
+fig.savefig(plot_filename[:-4] + ".png", bbox_inches="tight", dpi=150)
+logger.info("Saved figure to {}".format(plot_filename))
+
+"""
+
+# Do TEST1 WITH VBGMM
+output = []
+def callback(_):
+    output.append(_)
+
+# Load the stuff
+dataset = tagging.DataSet.from_fits("data/ges-no-member-criteria.fits",
+    extension=1)
+with open("realisations/test_1.pickle", "rb") as fp:
+    all_realisations = pickle.load(fp)
+
+# Specify the keywords for Test 1
+alpha = 1000.0
+test_1_kwds = {
+    "model": "VBGMM", # Available: GMM, GMM/AIC, GMM/BIC, DPGMM, VBGMM
+    "data_columns": ["RA", "DEC"],
+    "full_output": False,
+    "alpha": alpha,
+    "covariance_type": "full",
+    "perturb_within_uncertainties": False,
+}
+
+N = 10000
+logger.info("Doing first {} realisations..".format(N))
+
+pool = mp.Pool(processes=16)
+for i, (indices, true_clusters, unique_hash) in enumerate(all_realisations[:N]):
+    kwds = test_1_kwds.copy()
+    kwds["__mp_return_prefix"] = i
+    pool.apply_async(tagging.infer.cluster_count, args=(dataset.data[indices], ),
+        kwds=kwds, callback=callback)
+
+# Winter is coming.
+pool.close()
+pool.join()
+
+logger.info("Collating results together...")
+
+# Plot stuff from the results? Nah...
+results = []
+for each in output:
+    realisation = all_realisations[each[0]]
+    # Unique hash, true clusters, inferred clusters (AIC), inferred clusters (BIC)
+    results.append([realisation[2], len(realisation[1])] + list(each)[1:])
+
+# Create a table of the results from this realisation.
+results = Table(data=np.array(results),
+    names=("hash", "N_true", "N_VBGMM"),
+    dtype=("S32", "i4", "i4"))
+
+# Write the test results to disk.
+results.write("results/test-1-VBGMM-{0:.0f}-alpha={1:.0f}-realisations.fits".format(N, alpha), overwrite=True)
+
+# Make plots.
+plot_filename = "figures/test-1-VBGMM-{0:.0f}-alpha={1:.0f}-realisations-non-discrete.pdf".format(N, alpha)
+fig = tagging.plot.histogram2d(results)
+fig.savefig(plot_filename, bbox_inches="tight", dpi=150)
+fig.savefig(plot_filename[:-4] + ".png", bbox_inches="tight", dpi=150)
+logger.info("Saved figure to {}".format(plot_filename))
+
+plot_filename = "figures/test-1-VBGMM-{0:.0f}-alpha={1:.0f}-realisations.pdf".format(N, alpha)
+fig = tagging.plot.histogram2d(results, discretise=True)
+fig.savefig(plot_filename, bbox_inches="tight", dpi=150)
+fig.savefig(plot_filename[:-4] + ".png", bbox_inches="tight", dpi=150)
+logger.info("Saved figure to {}".format(plot_filename))
+
+plot_filename = "figures/test-1-VBGMM-{0:.0f}-alpha={1:.0f}-realisations-non-discrete.pdf".format(N, alpha)
+fig = tagging.plot.histogram2d(results)
+fig.savefig(plot_filename, bbox_inches="tight", dpi=150)
+fig.savefig(plot_filename[:-4] + ".png", bbox_inches="tight", dpi=150)
+logger.info("Saved figure to {}".format(plot_filename))
+
+plot_filename = "figures/test-1-VBGMM-{0:.0f}-alpha={1:.0f}-realisations.pdf".format(N, alpha)
+fig = tagging.plot.histogram2d(results, discretise=True)
+fig.savefig(plot_filename, bbox_inches="tight", dpi=150)
+fig.savefig(plot_filename[:-4] + ".png", bbox_inches="tight", dpi=150)
+logger.info("Saved figure to {}".format(plot_filename))
+
 
 
 """
@@ -253,37 +409,3 @@ for i, (indices, true_clusters, unique_hash) in enumerate(all_realisations):
 raise a
 """
 
-
-
-"""
-
-rs_indices, rs_counts, rs_hash = tagging.realisations.create(dataset,
-    exclude_clusters=["Br25"], num_clusters=5)
-
-kwds = {
-    "full_output": True,
-    "covariance_type": "full",
-    "perturb_within_uncertainties": False
-}
-
-aic_num, model, aics = tagging.infer.cluster_count(dataset.data[rs_indices], ["RA", "DEC"],
-    model="GMM/AIC", **kwds)
-
-bic_num, model, bics = tagging.infer.cluster_count(dataset.data[rs_indices], ["RA", "DEC"],
-    model="GMM/BIC", **kwds)
-
-dpgmm_num, model = tagging.infer.cluster_count(dataset.data[rs_indices], ["RA", "DEC"],
-    model="DPGMM", **kwds)
-
-vbgmm_num, model = tagging.infer.cluster_count(dataset.data[rs_indices], ["RA", "DEC"],
-    model="VBGMM", **kwds)
-
-print(aic_num, bic_num, dpgmm_num, vbgmm_num)
-
-import matplotlib.pyplot as plt
-fig, ax = plt.subplots()
-ax.plot(np.arange(aics.size) + 1, aics, c="b", linestyle="-.", label="GMM/AIC")
-ax.plot(np.arange(bics.size) + 1, bics, c="k", linestyle="-.", label="GMM/BIC")
-
-raise a
-"""

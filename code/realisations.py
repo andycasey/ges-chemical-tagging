@@ -246,7 +246,8 @@ def create(dataset, num_clusters=None, exclude_clusters=None,
     included_cluster_names = set(cluster_names).difference(exclude_clusters)
     if num_clusters is None: # Pro-Tip: np.isposinf(None) raises TypeError :)
         # This forces at least one cluster to be drawn from the sample.
-        num_clusters = int(round(random.uniform(1, len(included_cluster_names))))
+        num_clusters = \
+            int(round(random.uniform(1, len(included_cluster_names) + 1)))
 
     elif np.isposinf(num_clusters):
         num_clusters = len(included_cluster_names)

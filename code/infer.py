@@ -48,10 +48,8 @@ def cluster_count_by_dpgmm(data, max_components=100, **kwargs):
     full_output = kwargs.pop("full_output", False)
     mp_queue = kwargs.pop("__mp_queue", False)
 
-    # Defaults.
-    kwargs.setdefault("covariance_type", "full")
-
     # Fit stuff.
+    logger.debug("Setting DPGMM kwargs: {}".format(kwargs))
     model = mixture.DPGMM(max_components, **kwargs)
     try:
         model.fit(data)
@@ -101,10 +99,8 @@ def cluster_count_by_vbgmm(data, max_components=100, **kwargs):
     full_output = kwargs.pop("full_output", False)
     mp_queue = kwargs.pop("__mp_queue", False)
 
-    # Defaults.
-    kwargs.setdefault("covariance_type", "full")
-
     # Fit stuff.
+    logger.debug("Setting VBGMM kwargs: {}".format(kwargs))
     model = mixture.VBGMM(max_components, **kwargs)
     try:
         model.fit(data)
@@ -168,11 +164,9 @@ def cluster_count_by_gmm(data, max_components=100, metric=None, **kwargs):
     num_past_minimum = kwargs.pop("n_components_past_minimum", 5)
     kwargs.pop("n_components", None)
 
-    # Defaults:
-    kwargs.setdefault("covariance_type", "full")
-
     aics = []
     bics = []
+    logger.debug("Setting GMM kwargs: {}".format(kwargs))
     for i in range(1, max_components + 1):
         # Fit the data
         model = mixture.GMM(n_components=i, **kwargs)
@@ -303,7 +297,12 @@ def cluster_count(stars, data_columns, model, perturb_within_uncertainties=False
     else:
         raise WTFError()
 
-    result += list(_)
+    if isinstance(_, int):
+        _ = [_]
+    elif isinstance(_, tuple):
+        _ = list(_)
+
+    result += _
 
     return result
 
